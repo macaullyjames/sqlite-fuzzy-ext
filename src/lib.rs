@@ -1,5 +1,12 @@
 use std::{
-    borrow::Borrow, cell::{Ref, RefCell}, ffi::{c_char, c_int}, fmt, ops::Deref, rc::Rc, slice::Iter
+    borrow::{Borrow, BorrowMut},
+    cell::{Ref, RefCell},
+    ffi::{c_char, c_int},
+    fmt,
+    ops::Deref,
+    rc::Rc,
+    slice::Iter,
+    thread::current,
 };
 
 use rusqlite::{
@@ -96,8 +103,16 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
             let current = current.get_or_insert(create(current_chr)).clone();
 
             if !previous.deref().borrow().has_child(current_chr) {
-                previous.borrow_mut().children.push(current.clone());
+                previous.deref().borrow_mut().children.push(current.clone());
             }
+        }
+    }
+
+    for (idx, chr) in text.char_indices() {
+        let mut visited = vec![];
+        if let Some(item) = CharMatch::find_item(&root, chr, &mut visited) {
+            let mut current = item.deref().borrow_mut();
+            current.indices.push(idx);
         }
     }
 
@@ -120,6 +135,12 @@ struct CharMatch {
     children: Vec<Rc<RefCell<CharMatch>>>,
 }
 
+impl fmt::Debug for CharMatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Please use the print function on CharMatch")
+    }
+}
+
 impl CharMatch {
     fn new(chr: char) -> Self {
         CharMatch {
@@ -127,28 +148,6 @@ impl CharMatch {
             indices: vec![],
             children: vec![],
         }
-    }
-
-    fn print(current: &Rc<RefCell<CharMatch>>, visited: &mut Vec<char>) {
-        let item = current.deref().borrow();
-
-        if visited.contains(&item.chr) {
-            return;
-        }
-
-        visited.push(item.chr);
-
-        println!("item: {}", item.chr);
-        println!("indices: {:?}", item.indices);
-
-        let children: Vec<char> = item.children.iter().map(|child| child.deref().borrow().chr).collect();
-        println!("children: {:?}", children);
-        println!("\n");
-
-        for child in item.children.iter() {
-            Self::print(child, visited);
-        }
-
     }
 
     fn has_child(&self, chr: char) -> bool {
@@ -185,6 +184,31 @@ impl CharMatch {
         }
 
         None
+    }
+
+    fn print(current: &Rc<RefCell<CharMatch>>, visited: &mut Vec<char>) {
+        let item = current.deref().borrow();
+
+        if visited.contains(&item.chr) {
+            return;
+        }
+
+        visited.push(item.chr);
+
+        println!("item: {}", item.chr);
+        println!("indices: {:?}", item.indices);
+
+        let children: Vec<char> = item
+            .children
+            .iter()
+            .map(|child| child.deref().borrow().chr)
+            .collect();
+        println!("children: {:?}", children);
+        println!("\n");
+
+        for child in item.children.iter() {
+            Self::print(child, visited);
+        }
     }
 
     //fn insert(&mut self, chr: char, previous_chr: char) {
@@ -260,7 +284,7 @@ mod tests {
         let a = "Projects/config/nvim";
         let b = "Projects/neovim";
 
-        let pattern = "nvnim";
+        let pattern = "nvnimv";
 
         let score_a = determine_score(pattern, a);
         let score_b = determine_score(pattern, b);
