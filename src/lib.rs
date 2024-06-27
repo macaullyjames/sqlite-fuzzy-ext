@@ -5,7 +5,6 @@ use std::{
     iter::Skip,
     ops::Deref,
     rc::Rc,
-    slice::Iter,
     str::Chars,
 };
 
@@ -75,12 +74,15 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
     } else if text.is_empty() {
         return 0;
     } else if text == pattern {
-        return -1_000_000;
+        return -1_000;
     }
 
     fn create(chr: char) -> Rc<RefCell<CharMatch>> {
         Rc::new(RefCell::new(CharMatch::new(chr)))
     }
+
+    let pattern = pattern.to_lowercase();
+    let text = text.to_lowercase();
 
     let first_chr = pattern.chars().nth(0).unwrap();
     let root = create(first_chr);
@@ -120,12 +122,26 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
     let iter = pattern.chars().skip(1);
     CharMatch::add_streaks(&root, iter, &mut streaks, 0);
 
-    let mut visited = vec![];
-    CharMatch::print(&root, &mut visited);
+    streaks.sort_unstable();
 
-    println!("{streaks:?}");
+    let a = if streaks.is_empty() {
+        0
+    } else {
+        streaks[0].len() * 10
+    };
 
-    0
+    let b = if 1 < streaks.len() {
+        streaks[1].len() * 5
+    } else {
+        0
+    };
+
+    //let mut visited = vec![];
+    //CharMatch::print(&root, &mut visited);
+
+    //println!("{streaks:?}");
+
+    -(a as i64 + b as i64)
 }
 
 pub trait ShortRef<T> {
@@ -151,7 +167,7 @@ struct CharMatch {
 }
 
 /// Begin - end
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Streak {
     start: usize,
     end: usize,
@@ -170,6 +186,25 @@ impl Streak {
         } else {
             false
         }
+    }
+
+    fn len(&self) -> usize {
+        self.end - self.start + 1
+    }
+}
+
+impl Ord for Streak {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let a = self.end - self.start;
+        let b = other.end - other.start;
+
+        a.cmp(&b)
+    }
+}
+
+impl PartialOrd for Streak {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -255,12 +290,12 @@ impl CharMatch {
         current: &Rc<RefCell<CharMatch>>,
         mut iter: Skip<Chars>,
         streaks: &mut Vec<Streak>,
-        valid_from: usize
+        valid_from: usize,
     ) {
         let item = current.rent();
 
         for idx in item.indices.iter() {
-            if *idx <= valid_from {
+            if *idx < valid_from {
                 continue;
             }
 
@@ -285,7 +320,9 @@ impl CharMatch {
                 .find(|child| child.rent().chr == chr)
                 .unwrap();
 
-            Self::add_streaks(child, iter, streaks, item.indices[0]);
+            if !item.indices.is_empty() {
+                Self::add_streaks(child, iter, streaks, item.indices[0]);
+            }
         }
     }
 }
@@ -297,7 +334,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_one_peak() {
+    fn test_one() {
         // TODO test individual scores
 
         let a = "Projects/config/nvim";
@@ -322,11 +359,30 @@ mod tests {
     #[test]
     fn test_if_children_correctly_added() {
         // TODO
+        let a = "Projects/config/nvim";
+        let b = "Projects/neovim";
+
+        let pattern = "pr";
+
+        let score_a = determine_score(pattern, a);
+        let score_b = determine_score(pattern, b);
+
+        assert_eq!(score_a, score_b);
     }
 
     #[test]
-    fn test_if_indices_correctly_added() {
+    fn test_complex_pattern() {
         // TODO
+        let a = "Projects/config/nvim";
+        let b = "Projects/neovim";
+        
+        let pattern = "proconnv";
+
+        let score_a = determine_score(pattern, a);
+        let score_b = determine_score(pattern, b);
+
+        assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
+
     }
 
     //#[test]
