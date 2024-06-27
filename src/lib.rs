@@ -1,5 +1,12 @@
 use std::{
-    cell::{Ref, RefCell, RefMut}, ffi::{c_char, c_int}, fmt, iter::Skip, ops::Deref, rc::Rc, slice::Iter, str::Chars
+    cell::{Ref, RefCell, RefMut},
+    ffi::{c_char, c_int},
+    fmt,
+    iter::Skip,
+    ops::Deref,
+    rc::Rc,
+    slice::Iter,
+    str::Chars,
 };
 
 use rusqlite::{
@@ -230,11 +237,7 @@ impl CharMatch {
         println!("item: {}", item.chr);
         println!("indices: {:?}", item.indices);
 
-        let children: Vec<char> = item
-            .children
-            .iter()
-            .map(|child| child.rent().chr)
-            .collect();
+        let children: Vec<_> = item.children.iter().map(|child| child.rent().chr).collect();
         println!("children: {:?}", children);
         println!("\n");
 
@@ -251,17 +254,21 @@ impl CharMatch {
         let item = current.deref().borrow();
 
         for idx in item.indices.iter() {
+            let mut add_new_streak = true;
+
             for streak in streaks.iter_mut() {
                 if streak.try_extend(*idx) {
+                    add_new_streak = false;
                     break;
                 }
             }
 
-            streaks.push(Streak::new(*idx));
+            if add_new_streak {
+                streaks.push(Streak::new(*idx));
+            }
         }
 
         if let Some(chr) = iter.next() {
-            // TODO check on self instead of child
             let child = item
                 .children
                 .iter()
@@ -283,10 +290,10 @@ mod tests {
     fn test_one_peak() {
         // TODO test individual scores
 
-        let a = "Projects/confvig/nvim";
+        let a = "Projects/config/nvim";
         let b = "Projects/neovim";
 
-        let pattern = "nvnim";
+        let pattern = "convim";
 
         let now = Instant::now();
         let before = now.elapsed();
