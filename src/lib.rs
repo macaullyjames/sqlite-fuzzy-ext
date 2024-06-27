@@ -1,12 +1,5 @@
 use std::{
-    borrow::{Borrow, BorrowMut},
-    cell::{Ref, RefCell},
-    ffi::{c_char, c_int},
-    fmt,
-    ops::Deref,
-    rc::Rc,
-    slice::Iter,
-    thread::current,
+    cell::{Ref, RefCell, RefMut}, ffi::{c_char, c_int}, fmt, iter::Skip, ops::Deref, rc::Rc, slice::Iter, str::Chars
 };
 
 use rusqlite::{
@@ -99,11 +92,11 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
             let mut visited = vec![];
             let mut current = CharMatch::find_item(&root, current_chr, &mut visited);
 
-            let previous = previous.get_or_insert(create(previous_chr)).clone();
+            let mut previous = previous.get_or_insert(create(previous_chr)).clone();
             let current = current.get_or_insert(create(current_chr)).clone();
 
-            if !previous.deref().borrow().has_child(current_chr) {
-                previous.deref().borrow_mut().children.push(current.clone());
+            if !previous.rent().has_child(current_chr) {
+                previous.rent_mut().children.push(current.clone());
             }
         }
     }
@@ -116,16 +109,32 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
         }
     }
 
-    //let mut streaks = vec![];
+    let mut streaks = vec![];
 
-    //CharMatch::add_streaks(&all_matches, &mut streaks);
+    let iter = pattern.chars().skip(1);
+    CharMatch::add_streaks(&root, iter, &mut streaks);
 
-    //println!("{all_matches:?}");
-    //println!("{root:?}");
     let mut visited = vec![];
     CharMatch::print(&root, &mut visited);
 
+    println!("{streaks:?}");
+
     0
+}
+
+pub trait ShortRef<T> {
+    fn rent(&self) -> Ref<T>;
+    fn rent_mut(&mut self) -> RefMut<T>;
+}
+
+impl<T> ShortRef<T> for Rc<RefCell<T>> {
+    fn rent(&self) -> Ref<T> {
+        self.as_ref().borrow()
+    }
+
+    fn rent_mut(&mut self) -> RefMut<T> {
+        self.borrow_mut()
+    }
 }
 
 #[derive(Clone)]
@@ -133,6 +142,29 @@ struct CharMatch {
     chr: char,
     indices: Vec<usize>,
     children: Vec<Rc<RefCell<CharMatch>>>,
+}
+
+/// Begin - end
+#[derive(Clone, Copy, Debug)]
+struct Streak {
+    start: usize,
+    end: usize,
+}
+
+impl Streak {
+    fn new(start: usize) -> Self {
+        Self { start, end: start }
+    }
+
+    /// Will try to extend and returns true if succeeded
+    fn try_extend(&mut self, idx: usize) -> bool {
+        if self.end + 1 == idx {
+            self.end += 1;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl fmt::Debug for CharMatch {
@@ -161,7 +193,7 @@ impl CharMatch {
         chr: char,
         visited: &mut Vec<char>,
     ) -> Option<Rc<RefCell<CharMatch>>> {
-        let item: Ref<CharMatch> = current.deref().borrow();
+        let item: Ref<CharMatch> = current.rent();
 
         if visited.contains(&item.chr) {
             return None;
@@ -187,7 +219,7 @@ impl CharMatch {
     }
 
     fn print(current: &Rc<RefCell<CharMatch>>, visited: &mut Vec<char>) {
-        let item = current.deref().borrow();
+        let item = current.rent();
 
         if visited.contains(&item.chr) {
             return;
@@ -201,7 +233,7 @@ impl CharMatch {
         let children: Vec<char> = item
             .children
             .iter()
-            .map(|child| child.deref().borrow().chr)
+            .map(|child| child.rent().chr)
             .collect();
         println!("children: {:?}", children);
         println!("\n");
@@ -211,85 +243,73 @@ impl CharMatch {
         }
     }
 
-    //fn insert(&mut self, chr: char, previous_chr: char) {
-    //if self.chr == previous_chr {
-    //if !self.has_child(chr) {
-    //let child = Rc::new(RefCell::new(CharMatch::new(chr)));
-    //self.children.push(child);
-    //}
-    //} else {
-    //for child in self.children.iter_mut() {
-    //let child = child.clone();
+    fn add_streaks(
+        current: &Rc<RefCell<CharMatch>>,
+        mut iter: Skip<Chars>,
+        streaks: &mut Vec<Streak>,
+    ) {
+        let item = current.deref().borrow();
 
-    //child.borrow_mut().insert(chr, previous_chr);
-    //}
-    //}
-    //}
+        for idx in item.indices.iter() {
+            for streak in streaks.iter_mut() {
+                if streak.try_extend(*idx) {
+                    break;
+                }
+            }
 
-    fn add_streaks(all_matches: &[CharMatch]) {
-        //if all_matches.is_empty() {
-        //return;
-        //}
+            streaks.push(Streak::new(*idx));
+        }
 
-        //let mut iter = all_matches.iter();
+        if let Some(chr) = iter.next() {
+            // TODO check on self instead of child
+            let child = item
+                .children
+                .iter()
+                .find(|child| child.rent().chr == chr)
+                .unwrap();
 
-        //if let Some(next) = iter.next() {
-        //for s_idx in next.indexes.iter() {
-        //if let Some(len) = next.calc_len(1, iter.clone()) {
-        //streaks.push(Streak { len, idx: *s_idx })
-        //}
-        //}
-        //}
-    }
-
-    fn calc_len(&self, len: usize, mut iter: Iter<CharMatch>) {
-        //println!("{iter:?} ");
-        //for s_idx in self.indexes.iter() {
-        //if let Some(next) = iter.next() {
-        //let is_connected = next.indexes.iter().any(|o_idx| *s_idx + 1 == *o_idx);
-
-        //if is_connected {
-        //next.calc_len(len + 1, iter);
-        //} else {
-        //return Some(len);
-        //}
-        //} else {
-        //return streaks.push(Streak {
-        //len: len + 1,
-        //idx: s_idx - (len + 1),
-        //});
-        //}
-        //}
-
-        //
-
-        //let last = self.indexes.last()?;
-        //let valid = o_idx < *last;
-        //if valid {
-        //Some(len)
-        //} else {
-        //None
-        //}
+            Self::add_streaks(child, iter, streaks);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use super::*;
 
     #[test]
     fn test_one_peak() {
         // TODO test individual scores
 
-        let a = "Projects/config/nvim";
+        let a = "Projects/confvig/nvim";
         let b = "Projects/neovim";
 
-        let pattern = "nvnimv";
+        let pattern = "nvnim";
 
+        let now = Instant::now();
+        let before = now.elapsed();
         let score_a = determine_score(pattern, a);
+        let after = now.elapsed();
+
+        let us = after.as_micros() - before.as_micros();
+
+        println!("Micro secs: {}", us);
+
         let score_b = determine_score(pattern, b);
         assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
         //assert!(score_b < score_a, "Wrong order: {}, {}", score_b, score_a);
+    }
+
+    #[test]
+    fn test_if_children_correctly_added() {
+        // TODO
+    }
+
+    #[test]
+    fn test_if_indices_correctly_added() {
+        // TODO
     }
 
     //#[test]
