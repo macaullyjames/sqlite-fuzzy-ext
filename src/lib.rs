@@ -110,16 +110,15 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
 
     for (idx, chr) in text.char_indices() {
         let mut visited = vec![];
-        if let Some(item) = CharMatch::find_item(&root, chr, &mut visited) {
-            let mut current = item.deref().borrow_mut();
-            current.indices.push(idx);
+        if let Some(mut item) = CharMatch::find_item(&root, chr, &mut visited) {
+            item.rent_mut().indices.push(idx);
         }
     }
 
     let mut streaks = vec![];
 
     let iter = pattern.chars().skip(1);
-    CharMatch::add_streaks(&root, iter, &mut streaks);
+    CharMatch::add_streaks(&root, iter, &mut streaks, 0);
 
     let mut visited = vec![];
     CharMatch::print(&root, &mut visited);
@@ -246,14 +245,25 @@ impl CharMatch {
         }
     }
 
+    /**
+      current: the char its matched against
+      iter: the remaining iterator of chars
+      streaks: streaks to be used to score
+      valid_from: ignore indices before
+    */
     fn add_streaks(
         current: &Rc<RefCell<CharMatch>>,
         mut iter: Skip<Chars>,
         streaks: &mut Vec<Streak>,
+        valid_from: usize
     ) {
-        let item = current.deref().borrow();
+        let item = current.rent();
 
         for idx in item.indices.iter() {
+            if *idx <= valid_from {
+                continue;
+            }
+
             let mut add_new_streak = true;
 
             for streak in streaks.iter_mut() {
@@ -275,7 +285,7 @@ impl CharMatch {
                 .find(|child| child.rent().chr == chr)
                 .unwrap();
 
-            Self::add_streaks(child, iter, streaks);
+            Self::add_streaks(child, iter, streaks, item.indices[0]);
         }
     }
 }
