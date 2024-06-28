@@ -1,8 +1,5 @@
-use std::{
-    collections::HashMap,
-    ffi::{c_char, c_int},
-    time::Instant,
-};
+use std::ffi::c_char;
+use std::{collections::HashMap, ffi::c_int, time::Instant};
 
 use rusqlite::{
     ffi,
@@ -55,11 +52,6 @@ fn fuzzy_search(ctx: &Context) -> rusqlite::Result<ToSqlOutput<'static>> {
 }
 
 fn determine_score(pattern: &str, text: &str) -> i64 {
-    // look for 2 groups
-    // a streak doubles in points 1, 2, 4, etc.
-    // if a character is a miss it will reduce => 4, 2, 1, 0
-    // if 0 a streak is finished.
-
     // find the three highest streaks in a text
     // the highest multiply by (10?), the second by (4?) and add them up.
     // Invert score to keep asc order.
@@ -70,14 +62,14 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
     } else if text.is_empty() {
         return 0;
     } else if text == pattern {
-        return -1_000;
+        return -10_000;
     }
 
     //let now = Instant::now();
     //let begin = now.elapsed();
 
-    //let pattern = pattern.to_lowercase();
-    //let text = text.to_lowercase();
+    let pattern = pattern.to_lowercase();
+    let text = text.to_lowercase();
 
     let mut all_matches = HashMap::new();
 
@@ -100,11 +92,20 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
     //println!("indices: {}", (after_indices - after_insert).as_micros());
 
     let mut streaks = vec![];
-    let mut valid_from = 0;
+    let mut valid_after = 0;
 
-    for chr in pattern.chars() {
+    for (i, chr) in pattern.char_indices() {
         let current = all_matches.get(&chr).expect("should exist");
-        add_streaks(&current, &mut streaks, &mut valid_from);
+        let next_chr = pattern.chars().nth(i + 1);
+
+        let valid_before = next_chr
+            .map(|c| {
+                let next = all_matches.get(&c).unwrap();
+                *next.indices.last().unwrap()
+            })
+            .unwrap_or(usize::MAX);
+
+        add_streaks(&current, &mut streaks, &mut valid_after, valid_before);
     }
 
     //streaks.sort_unstable();
@@ -113,19 +114,22 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
     //println!("streaks: {}", (after_streaks - after_indices).as_micros());
 
     let mut total = 0;
+    let mut bonus = 0;
 
     for streak in streaks.iter() {
-        total += streak.end - streak.start;
+        let len = streak.len();
+        total += len;
+
+        //bonus += 3i64.pow((len as u32).min(5));
     }
 
-    //let mut visited = vec![];
-    //CharMatch::print(&root, &mut visited);
+    //println!("{streaks:?} {}", text.len());
 
-    //println!("{streaks:?}");
+    let score = (total as f32 / text.len() as f32) * 10_000.0;
 
-    let score = (total / text.len()) * 1_000;
+    //println!("{score}");
 
-    -(score as i64)
+    -(score as i64 + bonus)
 }
 
 /**
@@ -134,16 +138,21 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
   streaks: streaks to be used to score
   valid_from: ignore indices before
 */
-fn add_streaks(current: &CharMatch, streaks: &mut Vec<Streak>, valid_from: &mut usize) {
+fn add_streaks(
+    current: &CharMatch,
+    streaks: &mut Vec<Streak>,
+    valid_after: &mut usize,
+    valid_before: usize,
+) {
     let mut update = true;
 
     for idx in current.indices.iter() {
-        if *idx < *valid_from {
+        if *idx < *valid_after || valid_before < *idx {
             continue;
         }
 
         if update {
-            *valid_from = *idx;
+            *valid_after = *idx;
             update = false;
         }
 
@@ -164,9 +173,8 @@ fn add_streaks(current: &CharMatch, streaks: &mut Vec<Streak>, valid_from: &mut 
 
 #[derive(Clone, Debug)]
 struct CharMatch {
-    chr: char,
+    //chr: char,
     indices: Vec<usize>,
-    // TODO point to indices in array for children
 }
 
 /// Begin - end
@@ -212,9 +220,9 @@ impl PartialOrd for Streak {
 }
 
 impl CharMatch {
-    fn new(chr: char) -> Self {
+    fn new(_chr: char) -> Self {
         CharMatch {
-            chr,
+            //chr,
             indices: vec![],
         }
     }
@@ -249,33 +257,33 @@ mod tests {
         //assert!(score_b < score_a, "Wrong order: {}, {}", score_b, score_a);
     }
 
-    //#[test]
-    //fn test_if_children_correctly_added() {
-    //// TODO
-    //let a = "Projects/config/nvim";
-    //let b = "Projects/neovim";
+    #[test]
+    fn test_if_children_correctly_added() {
+        // TODO
+        let a = "Projects/config/nvim";
+        let b = "Projects/neovim";
 
-    //let pattern = "pr";
+        let pattern = "proc";
 
-    //let score_a = determine_score(pattern, a);
-    //let score_b = determine_score(pattern, b);
+        let score_a = determine_score(pattern, a);
+        let score_b = determine_score(pattern, b);
 
-    //assert_eq!(score_a, score_b);
-    //}
+        assert!(score_a < score_b);
+    }
 
-    //#[test]
-    //fn test_complex_pattern() {
-    //// TODO
-    //let a = "Projects/config/nvim";
-    ////let b = "Projects/neovim";
+    #[test]
+    fn test_complex_pattern() {
+        // TODO
+        let a = "Projects/config/nvim";
+        let b = "Projects/neovim";
 
-    //let pattern = "proconnv";
+        let pattern = "procnvi";
 
-    //let score_a = determine_score(pattern, a);
-    ////let score_b = determine_score(pattern, b);
+        let score_a = determine_score(pattern, a);
+        let score_b = determine_score(pattern, b);
 
-    ////assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
-    //}
+        assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
+    }
 
     //#[test]
     //fn test_two_peaks() {
