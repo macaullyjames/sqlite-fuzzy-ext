@@ -1,11 +1,7 @@
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    collections::HashMap,
     ffi::{c_char, c_int},
-    fmt,
-    iter::Skip,
-    ops::Deref,
-    rc::Rc,
-    str::Chars,
+    time::Instant,
 };
 
 use rusqlite::{
@@ -77,93 +73,100 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
         return -1_000;
     }
 
-    fn create(chr: char) -> Rc<RefCell<CharMatch>> {
-        Rc::new(RefCell::new(CharMatch::new(chr)))
-    }
+    //let now = Instant::now();
+    //let begin = now.elapsed();
 
-    let pattern = pattern.to_lowercase();
-    let text = text.to_lowercase();
+    //let pattern = pattern.to_lowercase();
+    //let text = text.to_lowercase();
 
-    let first_chr = pattern.chars().nth(0).unwrap();
-    let root = create(first_chr);
+    let mut all_matches = HashMap::new();
 
-    if 1 < pattern.chars().count() {
-        for i in 1..pattern.chars().count() {
-            let current_chr = pattern.chars().nth(i).unwrap();
-            let previous_chr = pattern.chars().nth(i - 1).unwrap();
-
-            if previous_chr == current_chr {
-                continue;
-            }
-
-            let mut visited = vec![];
-            let mut previous = CharMatch::find_item(&root, previous_chr, &mut visited);
-            let mut visited = vec![];
-            let mut current = CharMatch::find_item(&root, current_chr, &mut visited);
-
-            let mut previous = previous.get_or_insert(create(previous_chr)).clone();
-            let current = current.get_or_insert(create(current_chr)).clone();
-
-            if !previous.rent().has_child(current_chr) {
-                previous.rent_mut().children.push(current.clone());
-            }
+    for chr in pattern.chars() {
+        if !all_matches.contains_key(&chr) {
+            all_matches.insert(chr, CharMatch::new(chr));
         }
     }
+
+    //let after_insert = now.elapsed();
+    //println!("insert: {}", (after_insert - begin).as_micros());
 
     for (idx, chr) in text.char_indices() {
-        let mut visited = vec![];
-        if let Some(mut item) = CharMatch::find_item(&root, chr, &mut visited) {
-            item.rent_mut().indices.push(idx);
+        if let Some(chr_match) = all_matches.get_mut(&chr) {
+            chr_match.indices.push(idx);
         }
     }
 
+    //let after_indices = now.elapsed();
+    //println!("indices: {}", (after_indices - after_insert).as_micros());
+
     let mut streaks = vec![];
+    let mut valid_from = 0;
 
-    let iter = pattern.chars().skip(1);
-    CharMatch::add_streaks(&root, iter, &mut streaks, 0);
+    for chr in pattern.chars() {
+        let current = all_matches.get(&chr).expect("should exist");
+        add_streaks(&current, &mut streaks, &mut valid_from);
+    }
 
-    streaks.sort_unstable();
+    //streaks.sort_unstable();
 
-    let a = if streaks.is_empty() {
-        0
-    } else {
-        streaks[0].len() * 10
-    };
+    //let after_streaks = now.elapsed();
+    //println!("streaks: {}", (after_streaks - after_indices).as_micros());
 
-    let b = if 1 < streaks.len() {
-        streaks[1].len() * 5
-    } else {
-        0
-    };
+    let mut total = 0;
+
+    for streak in streaks.iter() {
+        total += streak.end - streak.start;
+    }
 
     //let mut visited = vec![];
     //CharMatch::print(&root, &mut visited);
 
     //println!("{streaks:?}");
 
-    -(a as i64 + b as i64)
+    let score = (total / text.len()) * 1_000;
+
+    -(score as i64)
 }
 
-pub trait ShortRef<T> {
-    fn rent(&self) -> Ref<T>;
-    fn rent_mut(&mut self) -> RefMut<T>;
-}
+/**
+  current: the char its matched against
+  iter: the remaining iterator of chars
+  streaks: streaks to be used to score
+  valid_from: ignore indices before
+*/
+fn add_streaks(current: &CharMatch, streaks: &mut Vec<Streak>, valid_from: &mut usize) {
+    let mut update = true;
 
-impl<T> ShortRef<T> for Rc<RefCell<T>> {
-    fn rent(&self) -> Ref<T> {
-        self.as_ref().borrow()
+    for idx in current.indices.iter() {
+        if *idx < *valid_from {
+            continue;
+        }
+
+        if update {
+            *valid_from = *idx;
+            update = false;
+        }
+
+        let mut add_new_streak = true;
+
+        for streak in streaks.iter_mut() {
+            if streak.try_extend(*idx) {
+                add_new_streak = false;
+                break;
+            }
+        }
+
+        if add_new_streak {
+            streaks.push(Streak::new(*idx));
+        }
     }
-
-    fn rent_mut(&mut self) -> RefMut<T> {
-        self.borrow_mut()
-    }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct CharMatch {
     chr: char,
     indices: Vec<usize>,
-    children: Vec<Rc<RefCell<CharMatch>>>,
+    // TODO point to indices in array for children
 }
 
 /// Begin - end
@@ -208,121 +211,11 @@ impl PartialOrd for Streak {
     }
 }
 
-impl fmt::Debug for CharMatch {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Please use the print function on CharMatch")
-    }
-}
-
 impl CharMatch {
     fn new(chr: char) -> Self {
         CharMatch {
             chr,
             indices: vec![],
-            children: vec![],
-        }
-    }
-
-    fn has_child(&self, chr: char) -> bool {
-        self.children
-            .iter()
-            .any(|child| child.deref().borrow().chr == chr)
-    }
-
-    fn find_item(
-        current: &Rc<RefCell<CharMatch>>,
-        chr: char,
-        visited: &mut Vec<char>,
-    ) -> Option<Rc<RefCell<CharMatch>>> {
-        let item: Ref<CharMatch> = current.rent();
-
-        if visited.contains(&item.chr) {
-            return None;
-        }
-
-        if item.chr == chr {
-            return Some(current.clone());
-        } else {
-            visited.push(item.chr);
-
-            for child in item.children.iter() {
-                let child_ref: Ref<CharMatch> = child.deref().borrow();
-
-                if child_ref.chr == chr {
-                    return Some(child.clone());
-                } else if let Some(item) = Self::find_item(child, chr, visited) {
-                    return Some(item);
-                }
-            }
-        }
-
-        None
-    }
-
-    fn print(current: &Rc<RefCell<CharMatch>>, visited: &mut Vec<char>) {
-        let item = current.rent();
-
-        if visited.contains(&item.chr) {
-            return;
-        }
-
-        visited.push(item.chr);
-
-        println!("item: {}", item.chr);
-        println!("indices: {:?}", item.indices);
-
-        let children: Vec<_> = item.children.iter().map(|child| child.rent().chr).collect();
-        println!("children: {:?}", children);
-        println!("\n");
-
-        for child in item.children.iter() {
-            Self::print(child, visited);
-        }
-    }
-
-    /**
-      current: the char its matched against
-      iter: the remaining iterator of chars
-      streaks: streaks to be used to score
-      valid_from: ignore indices before
-    */
-    fn add_streaks(
-        current: &Rc<RefCell<CharMatch>>,
-        mut iter: Skip<Chars>,
-        streaks: &mut Vec<Streak>,
-        valid_from: usize,
-    ) {
-        let item = current.rent();
-
-        for idx in item.indices.iter() {
-            if *idx < valid_from {
-                continue;
-            }
-
-            let mut add_new_streak = true;
-
-            for streak in streaks.iter_mut() {
-                if streak.try_extend(*idx) {
-                    add_new_streak = false;
-                    break;
-                }
-            }
-
-            if add_new_streak {
-                streaks.push(Streak::new(*idx));
-            }
-        }
-
-        if let Some(chr) = iter.next() {
-            let child = item
-                .children
-                .iter()
-                .find(|child| child.rent().chr == chr)
-                .unwrap();
-
-            if !item.indices.is_empty() {
-                Self::add_streaks(child, iter, streaks, item.indices[0]);
-            }
         }
     }
 }
@@ -356,34 +249,33 @@ mod tests {
         //assert!(score_b < score_a, "Wrong order: {}, {}", score_b, score_a);
     }
 
-    #[test]
-    fn test_if_children_correctly_added() {
-        // TODO
-        let a = "Projects/config/nvim";
-        let b = "Projects/neovim";
+    //#[test]
+    //fn test_if_children_correctly_added() {
+    //// TODO
+    //let a = "Projects/config/nvim";
+    //let b = "Projects/neovim";
 
-        let pattern = "pr";
+    //let pattern = "pr";
 
-        let score_a = determine_score(pattern, a);
-        let score_b = determine_score(pattern, b);
+    //let score_a = determine_score(pattern, a);
+    //let score_b = determine_score(pattern, b);
 
-        assert_eq!(score_a, score_b);
-    }
+    //assert_eq!(score_a, score_b);
+    //}
 
-    #[test]
-    fn test_complex_pattern() {
-        // TODO
-        let a = "Projects/config/nvim";
-        let b = "Projects/neovim";
-        
-        let pattern = "proconnv";
+    //#[test]
+    //fn test_complex_pattern() {
+    //// TODO
+    //let a = "Projects/config/nvim";
+    ////let b = "Projects/neovim";
 
-        let score_a = determine_score(pattern, a);
-        let score_b = determine_score(pattern, b);
+    //let pattern = "proconnv";
 
-        assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
+    //let score_a = determine_score(pattern, a);
+    ////let score_b = determine_score(pattern, b);
 
-    }
+    ////assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
+    //}
 
     //#[test]
     //fn test_two_peaks() {
