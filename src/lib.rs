@@ -83,16 +83,25 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
         add_streaks(&current, &mut streaks, &mut valid_after, valid_before);
     }
 
-    streaks.sort_unstable();
+    let best_streak = streaks.into_iter().reduce(|acc, item| {
+        let a = acc.len();
+        let b = item.len();
 
-    let streak = streaks.remove(0);
+        if a < b {
+            item
+        } else if a == b && acc.start < item.start {
+            item
+        } else {
+            acc
+        }
+    }).expect("Should have a streak");
 
     let text_len = text.len() as f32;
-    let end_bonus = (streak.end as f32 / text_len * 100.) as usize;
-    let len_bonus = (streak.len() as f32 / text_len * 200.) as usize;
+    let end_bonus = (best_streak.end as f32 / text_len * 100.) as usize;
+    let len_bonus = (best_streak.len() as f32 / text_len * 200.) as usize;
     let direct_bonus = if text.contains('/') { 0 } else { 200 };
 
-    let score = streak.len() * 10 + end_bonus + len_bonus + direct_bonus;
+    let score = best_streak.len() * 10 + end_bonus + len_bonus + direct_bonus;
 
     -(score as i64)
 }
