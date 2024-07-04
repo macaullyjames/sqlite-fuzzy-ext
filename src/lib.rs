@@ -185,6 +185,7 @@ impl Ord for Streak {
             // Return shorter
             self.start.cmp(&other.start)
         } else {
+            // Return higher len
             b.cmp(&a)
         }
     }
