@@ -1,7 +1,7 @@
 # sqlite-fuzzy-ext
 Very simple sqlite fuzzy extension writtin in rust. It will score most heavily on the end of a string.
 
-You have to match the query with `like` to make the search correct (and performant), the extension contains only one function:
+You have to match the query with `like` to make the search correct, the extension contains only one function:
 
 ```sql
 SELECT 
