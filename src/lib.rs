@@ -31,8 +31,8 @@ fn extension_init(db: Connection) -> rusqlite::Result<bool> {
 }
 
 fn fuzzy_search(ctx: &Context) -> rusqlite::Result<ToSqlOutput<'static>> {
-    let pattern: String = ctx.get(0)?;
-    let text: String = ctx.get(1)?;
+    let pattern: Box<str> = ctx.get(0)?;
+    let text: Box<str> = ctx.get(1)?;
 
     let score = determine_score(&pattern, &text);
     let out = ToSqlOutput::Owned(Value::Integer(score));
@@ -48,9 +48,6 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
     } else if text == pattern {
         return -100_000;
     }
-
-    let pattern = pattern.to_lowercase();
-    let text = text.to_lowercase();
 
     let mut all_matches = HashMap::new();
 
@@ -106,7 +103,7 @@ fn determine_score(pattern: &str, text: &str) -> i64 {
         let len_bonus = (best_streak.len() as f32 / text_len * 200.) as usize;
         let direct_bonus = if text.contains('/') { 0 } else { 200 };
 
-        let score = best_streak.len() * 10 + end_bonus + len_bonus + direct_bonus;
+        let score = best_streak.len() * 50 + end_bonus + len_bonus + direct_bonus;
 
         -(score as i64)
     } else {

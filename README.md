@@ -23,10 +23,3 @@ The top entry will score higher.
 
 Another bonus is given on the length of the text, this is because the long text is often not the result you want, 
 and you can easily prefix some letters to the `like` query to make the long text the first result any way.
-
-## Tips
-Useful setting for fuzzy search:
-
-```sql
-PRAGMA case_sensitive_like=ON;
-```
