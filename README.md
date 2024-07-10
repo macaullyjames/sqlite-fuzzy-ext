@@ -23,3 +23,23 @@ The top entry will score higher.
 
 Another bonus is given on the length of the text, this is because the long text is often not the result you want, 
 and you can easily prefix some letters to the `like` query to make the long text the first result any way.
+
+
+
+
+## Prototype
+
+```rust
+let a = "Projects/neovim/";
+let b = "Projects/neo-api-rs/";
+let c = "bin/google-cloud-sdk/lib/surface/monitoring/snoozes/";
+
+let pattern = "neo";
+```
+
+// p => n == false
+// n => n == true => e => e == true, increment streak
+
+// 
+
+Pr
