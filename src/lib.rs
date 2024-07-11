@@ -178,7 +178,7 @@ fn create_matches(pattern: &str, text: &str) -> Vec<Option<CharMatch>> {
             if let Some(tex_match) = &text_matches[text_i] {
                 match tex_match.valid_after(i) {
                     Ordering::Less => {
-                        println!("lesser: {:?}, {}", tex_match, i);
+                        //println!("lesser: {:?}, {}", tex_match, i);
                         delete = true;
                     }
                     Ordering::Equal => {
@@ -186,7 +186,7 @@ fn create_matches(pattern: &str, text: &str) -> Vec<Option<CharMatch>> {
                         break;
                     }
                     Ordering::Greater => {
-                        println!("greater: {:?}, {}", tex_match, i);
+                        //println!("greater: {:?}, {}", tex_match, i);
                     }
                 }
             }
@@ -197,7 +197,7 @@ fn create_matches(pattern: &str, text: &str) -> Vec<Option<CharMatch>> {
         }
     }
 
-    println!("{text_matches:?}");
+    //println!("{text_matches:?}");
 
     text_matches
 }
