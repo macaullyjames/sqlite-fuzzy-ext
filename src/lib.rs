@@ -1,4 +1,6 @@
+use std::cmp::Ordering;
 use std::ffi::c_char;
+use std::ops::{Deref, DerefMut};
 use std::usize;
 use std::{collections::HashMap, ffi::c_int};
 
@@ -57,75 +59,134 @@ fn determine_best_streak(pattern: &str, text: &str) -> Score {
         };
     }
 
-    let mut all_matches: HashMap<char, CharMatch> = HashMap::new();
+    let mut pattern_chrs: HashMap<char, CharMatch> = HashMap::new();
+    let mut text_matches: Vec<Option<CharMatch>> = vec![];
 
     for (i, chr) in pattern.char_indices() {
-        if let Some(chr_match) = all_matches.get_mut(&chr) {
-            chr_match.pattern_indices.push(i);
+        if let Some(chr_match) = pattern_chrs.get_mut(&chr) {
+            chr_match.push(i);
         } else {
-            all_matches.insert(chr, CharMatch::new(i));
+            pattern_chrs.insert(chr, CharMatch::new(i));
         }
     }
 
-    for (idx, chr) in text.char_indices() {
-        if let Some(chr_match) = all_matches.get_mut(&chr) {
-            chr_match.indices.push(idx);
+    for chr in text.chars() {
+        if let Some(chr_match) = pattern_chrs.get(&chr) {
+            text_matches.push(Some(chr_match.clone()));
         } else if let Some(chr) = chr.to_lowercase().next() {
-            if let Some(chr_match) = all_matches.get_mut(&chr) {
-                chr_match.indices.push(idx);
+            if let Some(chr_match) = pattern_chrs.get(&chr) {
+                text_matches.push(Some(chr_match.clone()));
+            } else {
+                text_matches.push(None);
             }
+        } else {
+            text_matches.push(None);
         }
     }
 
     //println!("{all_matches:?}");
 
-    let mut streaks = vec![];
-    let mut valid_after = 0;
+    // Remove illegal pattern indices before
+    let mut start_from = 0;
+    for (i, _) in pattern.char_indices() {
+        for text_i in start_from..text_matches.len() {
+            let mut delete = false;
 
-    for (i, chr) in pattern.char_indices() {
-        let current = all_matches.get(&chr).expect("should exist");
-        let next_chr = pattern.chars().nth(i + 1);
+            if let Some(tex_match) = &text_matches[text_i] {
+                match tex_match.lowest(i) {
+                    Ordering::Less => {
+                        //println!("less: {:?}, {}", tex_match, i);
+                    }
+                    Ordering::Equal => {
+                        start_from = text_i + 1;
+                        break;
+                    }
+                    Ordering::Greater => {
+                        delete = true;
+                        //println!("greater: {:?}, {}", tex_match, i);
+                    }
+                }
+            }
 
-        let valid_before = next_chr
-            .map(|c| {
-                let next = all_matches.get(&c).unwrap();
-                next.indices[next.indices.len() - 1]
-            })
-            .unwrap_or(usize::MAX);
-
-        add_streaks(&current, &mut streaks, &mut valid_after, valid_before);
+            if delete {
+                text_matches[text_i] = None;
+            }
+        }
     }
 
-    //println!("{streaks:?}");
+    let mut start_from = text_matches.len();
+    for (i, _) in pattern.char_indices().rev() {
+        for text_i in (0..start_from).rev() {
+            let mut delete = false;
 
-    let best_streak = streaks.into_iter().reduce(|acc, item| {
-        let a = acc.len();
-        let b = item.len();
+            if let Some(tex_match) = &text_matches[text_i] {
+                match tex_match.highest(i) {
+                    Ordering::Less => {
+                        println!("lesser: {:?}, {}", tex_match, i);
+                        delete = true;
+                    }
+                    Ordering::Equal => {
+                        start_from = text_i;
+                        break;
+                    }
+                    Ordering::Greater => {
+                        println!("greater: {:?}, {}", tex_match, i);
+                    }
+                }
+            }
 
-        if a < b {
-            item
-        } else if a == b && acc.start < item.start {
-            item
-        } else {
-            acc
+            if delete {
+                text_matches[text_i] = None;
+            }
         }
-    });
-
-    if let Some(best_streak) = best_streak {
-        let text_len = text.len() as f32;
-        let end_bonus = (best_streak.end as f32 / text_len * 100.) as usize;
-        let len_bonus = (best_streak.len() as f32 / text_len * 200.) as usize;
-        let direct_bonus = !text.contains('/');
-
-        Score {
-            streak_len: best_streak.len(),
-            end_bonus,
-            len_bonus,
-            direct_bonus,
-        }
-    } else {
-        Score::default()
     }
+
+    println!("{text_matches:?}");
+
+    //let mut streaks = vec![];
+
+    //let mut current_streak: Option<> = None;
+
+    //for item in text_matches.iter() {
+    //if let Some(chr_match) = item {
+    //if let Some(streak) = current_streak {
+    //streak
+
+    //}
+    //}
+    //}
+
+    ////println!("{streaks:?}");
+
+    //let best_streak = streaks.into_iter().reduce(|acc, item| {
+    //let a = acc.len();
+    //let b = item.len();
+
+    //if a < b {
+    //item
+    //} else if a == b && acc.start < item.start {
+    //item
+    //} else {
+    //acc
+    //}
+    //});
+
+    //if let Some(best_streak) = best_streak {
+    //let text_len = text.len() as f32;
+    //let end_bonus = (best_streak.end as f32 / text_len * 100.) as usize;
+    //let len_bonus = (best_streak.len() as f32 / text_len * 200.) as usize;
+    //let direct_bonus = !text.contains('/');
+
+    //Score {
+    //streak_len: best_streak.len(),
+    //end_bonus,
+    //len_bonus,
+    //direct_bonus,
+    //}
+    //} else {
+    //Score::default()
+    //}
+    Score::default()
 }
 
 #[derive(Default, Debug)]
@@ -145,147 +206,38 @@ impl Score {
     }
 }
 
-/**
-  current: the char its matched against
-  iter: the remaining iterator of chars
-  streaks: streaks to be used to score
-  valid_from: ignore indices before
-*/
-fn add_streaks(
-    current: &CharMatch,
-    streaks: &mut Vec<Streak>,
-    valid_after: &mut usize,
-    valid_before: usize,
-) {
-    let mut update = true;
-
-    for idx in current.indices.iter() {
-        if *idx < *valid_after || valid_before < *idx {
-            continue;
-        }
-
-        if update {
-            *valid_after = *idx;
-            update = false;
-        }
-
-        let mut add_new_streak = true;
-
-        for streak in streaks.iter_mut() {
-            if streak.try_extend(*idx, current.pattern_indices.clone()) {
-                add_new_streak = false;
-                break;
-            }
-        }
-
-        if add_new_streak {
-            streaks.push(Streak::new(*idx, current.pattern_indices.clone()));
-        }
-    }
-}
-
 /// Contains all text indices that matches this char.
 #[derive(Clone, Debug)]
-struct CharMatch {
-    indices: Vec<usize>,
-    pattern_indices: Vec<usize>,
-}
+struct CharMatch(Vec<usize>);
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct StreakItem {
-    text_idx: usize,
-    pattern_indices: Vec<usize>,
-}
-
-impl StreakItem {
-    fn new(text_idx: usize, pattern_indices: Vec<usize>) -> Self {
-        Self {
-            text_idx, pattern_indices
-        }
-    }
-
-    fn valid_next(&self, maybe_next: &StreakItem) -> bool {
-        for p_idx in self.pattern_indices.iter() {
-            for op_idx in maybe_next.pattern_indices.iter() {
-                if self.text_idx + 1 == maybe_next.text_idx && *p_idx + 1 == *op_idx {
-                    return true;
-                }
-            }
-        }
-
-        false
+impl Deref for CharMatch {
+    type Target = Vec<usize>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-/// Begin - end
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct Streak {
-    items: Vec<StreakItem>,
-}
-
-impl Streak {
-    fn new(text_idx: usize, pattern_indices: Vec<usize>) -> Self {
-        Self {
-            items: vec![StreakItem::new(text_idx, pattern_indices)],
-        }
-    }
-
-    /// Will try to extend and returns true if succeeded
-    fn try_extend(&mut self, text_idx: usize, pattern_indices: Vec<usize>) -> bool {
-        let maybe_next = StreakItem::new(text_idx, pattern_indices);
-
-        let mut valid_next = false;
-        for item in self.items.iter() {
-            if item.valid_next(&maybe_next) {
-                valid_next = true;
-                break;
-            }
-        }
-
-        if valid_next {
-            self.items.push(maybe_next);
-            true
-        } else {
-            false
-        }
-    }
-
-    fn len(&self) -> usize {
-        let mut longest = 0;
-
-
-
-        //self.end - self.start + 1
-    }
-}
-
-impl Ord for Streak {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let a = self.len();
-        let b = other.len();
-
-        if a == b {
-            // Return shorter
-            self.start.cmp(&other.start)
-        } else {
-            // Return higher len
-            b.cmp(&a)
-        }
-    }
-}
-
-impl PartialOrd for Streak {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
+impl DerefMut for CharMatch {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
 impl CharMatch {
     fn new(idx: usize) -> Self {
-        Self {
-            indices: vec![idx],
-            pattern_indices: vec![],
-        }
+        Self(vec![idx])
+    }
+
+    fn lowest(&self, idx: usize) -> Ordering {
+        let pattern_idx = self.0[0];
+
+        pattern_idx.cmp(&idx)
+    }
+
+    fn highest(&self, idx: usize) -> Ordering {
+        let pattern_idx = self.0[self.len() - 1];
+
+        pattern_idx.cmp(&idx)
     }
 }
 
@@ -295,18 +247,18 @@ mod tests {
 
     use super::*;
 
-    //#[test]
-    //fn test_one() {
-    //let a = "Projects/config/nvim";
-    //let b = "Projects/neovim";
+    #[test]
+    fn test_one() {
+        let a = "Projects/config/nvim";
+        let b = "Projects/neovim";
 
-    //let pattern = "convim";
+        let pattern = "convim";
 
-    //let score_a = determine_best_streak(pattern, a).total();
-    //let score_b = determine_best_streak(pattern, b).total();
+        let score_a = determine_best_streak(pattern, a).total();
+        let score_b = determine_best_streak(pattern, b).total();
 
-    //assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
-    //}
+        assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
+    }
 
     //#[test]
     //fn test_if_children_correctly_added() {
@@ -321,18 +273,19 @@ mod tests {
     //assert!(score_a < score_b);
     //}
 
-    //#[test]
-    //fn test_complex_pattern() {
-    //let a = "Projects/config/nvim";
-    //let b = "Projects/neovim";
+    #[test]
+    fn test_complex_pattern() {
+        let a = "Projects/config/nvim";
+        let b = "Projects/neovim";
 
-    //let pattern = "prnvi";
+        let pattern = "prnvi";
+        println!("{pattern}");
 
-    //let score_a = determine_best_streak(pattern, a).total();
-    //let score_b = determine_best_streak(pattern, b).total();
+        let score_a = determine_best_streak(pattern, a).total();
+        let score_b = determine_best_streak(pattern, b).total();
 
-    //assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
-    //}
+        assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
+    }
 
     #[test]
     fn test_short() {
