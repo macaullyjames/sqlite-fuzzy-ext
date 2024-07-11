@@ -39,7 +39,7 @@ fn fuzzy_search(ctx: &Context) -> rusqlite::Result<ToSqlOutput<'static>> {
     let score = calculate_score(&pattern, &text);
     let out = ToSqlOutput::Owned(Value::Integer(score));
 
-    return Ok(out);
+    Ok(out)
 }
 
 fn calculate_score(pattern: &str, text: &str) -> i64 {
@@ -48,10 +48,10 @@ fn calculate_score(pattern: &str, text: &str) -> i64 {
     } else if text == pattern {
         -10_000
     } else {
-        let text_matches = create_matches(&pattern, &text);
+        let text_matches = create_matches(pattern, text);
 
         if is_valid_match(&text_matches) {
-            -highest_score(text_matches, &text)
+            -highest_score(text_matches, text)
         } else {
             10_000
         }
@@ -108,7 +108,7 @@ fn streak_score(idx: usize, streak_len: usize, text_len: usize, direct_bonus: bo
     (streak_len as f32 * 50. + len_bonus + end_bonus + direct_bonus) as i64
 }
 
-fn is_valid_match(text_matches: &Vec<Option<CharMatch>>) -> bool {
+fn is_valid_match(text_matches: &[Option<CharMatch>]) -> bool {
     text_matches.iter().any(|x| x.is_some())
 }
 
@@ -141,10 +141,10 @@ fn create_matches(pattern: &str, text: &str) -> Vec<Option<CharMatch>> {
     // Remove illegal pattern indices before
     let mut start_from = 0;
     for (i, _) in pattern.char_indices() {
-        for text_i in start_from..text_matches.len() {
+        for (text_i, text_m) in text_matches.iter_mut().enumerate().skip(start_from) {
             let mut delete = false;
 
-            if let Some(tex_match) = &text_matches[text_i] {
+            if let Some(tex_match) = text_m {
                 match tex_match.valid_before(i) {
                     Ordering::Less => {
                         //println!("low: less: {:?}, {}", tex_match, i);
@@ -161,7 +161,7 @@ fn create_matches(pattern: &str, text: &str) -> Vec<Option<CharMatch>> {
             }
 
             if delete {
-                text_matches[text_i] = None;
+                *text_m = None;
             }
         }
     }
@@ -227,13 +227,13 @@ impl CharMatch {
             match pattern_idx.cmp(&idx) {
                 Ordering::Less => ordering = Ordering::Less,
                 Ordering::Equal => return Ordering::Equal,
-                Ordering::Greater => {},
+                Ordering::Greater => {}
             }
 
             //if *pattern_idx == idx {
-                //return Ordering::Equal;
+            //return Ordering::Equal;
             //} else if *pattern_idx < idx {
-                //ordering = Ordering::Less;
+            //ordering = Ordering::Less;
             //}
         }
 
@@ -249,9 +249,9 @@ impl CharMatch {
             }
 
             //if *pattern_idx == idx {
-                //return Ordering::Equal;
+            //return Ordering::Equal;
             //} else if idx < *pattern_idx {
-                //return Ordering::Greater;
+            //return Ordering::Greater;
             //}
         }
 
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn test_search() {
         let a = "Projects/nvim-traveller-rs";
-        let b = "/home/norlock/bin/google-cloud-sdk/lib/third_party/setuptools/_vendor/importlib_resources-5.10.2.dist-info";
+        let b = "bin/google-cloud-sdk/lib/third_party/setuptools/_vendor/importlib_resources-5.10.2.dist-info";
         let pattern = "nvim-t-";
 
         println!("A: {a}");
