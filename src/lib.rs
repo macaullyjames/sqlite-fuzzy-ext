@@ -36,29 +36,85 @@ fn fuzzy_search(ctx: &Context) -> rusqlite::Result<ToSqlOutput<'static>> {
     let pattern: Box<str> = ctx.get(0)?;
     let text: Box<str> = ctx.get(1)?;
 
-    let score = determine_best_streak(&pattern, &text);
-
-    let score = score.total();
+    let score = calculate_score(&pattern, &text);
     let out = ToSqlOutput::Owned(Value::Integer(score));
 
     return Ok(out);
 }
 
-fn determine_best_streak(pattern: &str, text: &str) -> Score {
-    if pattern.is_empty() || text.is_empty() {
-        return Score {
-            direct_bonus: !text.contains('/'),
-            ..Default::default()
-        };
+fn calculate_score(pattern: &str, text: &str) -> i64 {
+    if pattern.is_empty() {
+        text.len() as i64
     } else if text == pattern {
-        return Score {
-            streak_len: pattern.len(),
-            len_bonus: 1000,
-            end_bonus: 1000,
-            direct_bonus: true,
-        };
+        -10_000
+    } else {
+        let text_matches = create_matches(&pattern, &text);
+
+        if is_valid_match(&text_matches) {
+            -highest_score(text_matches, &text)
+        } else {
+            10_000
+        }
+    }
+}
+
+fn highest_score(text_matches: Vec<Option<CharMatch>>, text: &str) -> i64 {
+    let mut highest_score = 0;
+    let mut i = 0;
+
+    let direct_bonus = if text.ends_with('/') {
+        let mut text = text.to_string();
+        text.pop();
+
+        !text.contains('/')
+    } else {
+        !text.contains('/')
+    };
+
+    while i < text_matches.len() {
+        if let Some(current) = &text_matches[i] {
+            let mut splits = current.split_indices();
+            let mut streak_len = 0;
+
+            for other in text_matches.iter().skip(i + 1) {
+                if let Some(other) = other {
+                    splits.retain_mut(|streak| other.try_extend(streak, &mut streak_len));
+                } else {
+                    if 0 < streak_len {
+                        let score = streak_score(i, streak_len, text_matches.len(), direct_bonus);
+                        highest_score = highest_score.max(score);
+                    }
+                    break;
+                }
+            }
+        }
+
+        i += 1;
     }
 
+    highest_score
+}
+
+fn streak_score(idx: usize, streak_len: usize, text_len: usize, direct_bonus: bool) -> i64 {
+    //let direct_bonus = if self.direct_bonus { 200 } else { 0 };
+    // TODO direct bonus
+    let len_bonus = streak_len as f32 / text_len as f32 * 200.;
+    //println!("lenb: {len_bonus}");
+    let last_idx = idx + streak_len;
+    let end_bonus = last_idx as f32 / text_len as f32 * 100.;
+    //println!("endb: {end_bonus}");
+
+    let direct_bonus = if direct_bonus { 100. } else { 0. };
+    //println!("dir: {direct_bonus}");
+
+    (streak_len as f32 * 50. + len_bonus + end_bonus + direct_bonus) as i64
+}
+
+fn is_valid_match(text_matches: &Vec<Option<CharMatch>>) -> bool {
+    text_matches.iter().any(|x| x.is_some())
+}
+
+fn create_matches(pattern: &str, text: &str) -> Vec<Option<CharMatch>> {
     let mut pattern_chrs: HashMap<char, CharMatch> = HashMap::new();
     let mut text_matches: Vec<Option<CharMatch>> = vec![];
 
@@ -93,9 +149,9 @@ fn determine_best_streak(pattern: &str, text: &str) -> Score {
             let mut delete = false;
 
             if let Some(tex_match) = &text_matches[text_i] {
-                match tex_match.lowest(i) {
+                match tex_match.valid_before(i) {
                     Ordering::Less => {
-                        //println!("less: {:?}, {}", tex_match, i);
+                        //println!("low: less: {:?}, {}", tex_match, i);
                     }
                     Ordering::Equal => {
                         start_from = text_i + 1;
@@ -103,7 +159,7 @@ fn determine_best_streak(pattern: &str, text: &str) -> Score {
                     }
                     Ordering::Greater => {
                         delete = true;
-                        //println!("greater: {:?}, {}", tex_match, i);
+                        //println!("low: greater: {:?}, {}", tex_match, i);
                     }
                 }
             }
@@ -120,7 +176,7 @@ fn determine_best_streak(pattern: &str, text: &str) -> Score {
             let mut delete = false;
 
             if let Some(tex_match) = &text_matches[text_i] {
-                match tex_match.highest(i) {
+                match tex_match.valid_after(i) {
                     Ordering::Less => {
                         println!("lesser: {:?}, {}", tex_match, i);
                         delete = true;
@@ -143,67 +199,7 @@ fn determine_best_streak(pattern: &str, text: &str) -> Score {
 
     println!("{text_matches:?}");
 
-    //let mut streaks = vec![];
-
-    //let mut current_streak: Option<> = None;
-
-    //for item in text_matches.iter() {
-    //if let Some(chr_match) = item {
-    //if let Some(streak) = current_streak {
-    //streak
-
-    //}
-    //}
-    //}
-
-    ////println!("{streaks:?}");
-
-    //let best_streak = streaks.into_iter().reduce(|acc, item| {
-    //let a = acc.len();
-    //let b = item.len();
-
-    //if a < b {
-    //item
-    //} else if a == b && acc.start < item.start {
-    //item
-    //} else {
-    //acc
-    //}
-    //});
-
-    //if let Some(best_streak) = best_streak {
-    //let text_len = text.len() as f32;
-    //let end_bonus = (best_streak.end as f32 / text_len * 100.) as usize;
-    //let len_bonus = (best_streak.len() as f32 / text_len * 200.) as usize;
-    //let direct_bonus = !text.contains('/');
-
-    //Score {
-    //streak_len: best_streak.len(),
-    //end_bonus,
-    //len_bonus,
-    //direct_bonus,
-    //}
-    //} else {
-    //Score::default()
-    //}
-    Score::default()
-}
-
-#[derive(Default, Debug)]
-struct Score {
-    streak_len: usize,
-    end_bonus: usize,
-    len_bonus: usize,
-    direct_bonus: bool,
-}
-
-impl Score {
-    fn total(&self) -> i64 {
-        let direct_bonus = if self.direct_bonus { 200 } else { 0 };
-
-        let total = self.streak_len * 100 + self.end_bonus + self.len_bonus + direct_bonus;
-        -(total as i64)
-    }
+    text_matches
 }
 
 /// Contains all text indices that matches this char.
@@ -228,23 +224,53 @@ impl CharMatch {
         Self(vec![idx])
     }
 
-    fn lowest(&self, idx: usize) -> Ordering {
-        let pattern_idx = self.0[0];
+    fn valid_before(&self, idx: usize) -> Ordering {
+        let mut ordering = Ordering::Greater;
 
-        pattern_idx.cmp(&idx)
+        for pattern_idx in self.iter() {
+            if *pattern_idx == idx {
+                return Ordering::Equal;
+            } else if *pattern_idx < idx {
+                ordering = Ordering::Less;
+            }
+        }
+
+        ordering
     }
 
-    fn highest(&self, idx: usize) -> Ordering {
-        let pattern_idx = self.0[self.len() - 1];
+    fn valid_after(&self, idx: usize) -> Ordering {
+        for pattern_idx in self.iter() {
+            if *pattern_idx == idx {
+                return Ordering::Equal;
+            } else if idx < *pattern_idx {
+                return Ordering::Greater;
+            }
+        }
 
-        pattern_idx.cmp(&idx)
+        Ordering::Less
+    }
+
+    fn split_indices(&self) -> Vec<Vec<usize>> {
+        self.iter().map(|i| vec![*i]).collect()
+    }
+
+    fn try_extend(&self, streak: &mut Vec<usize>, max_len: &mut usize) -> bool {
+        let last = streak[streak.len() - 1];
+
+        for p_idx in self.iter() {
+            if last + 1 == *p_idx {
+                streak.push(*p_idx);
+                *max_len = max_len.clone().max(streak.len());
+                return true;
+            }
+        }
+
+        false
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-
     use super::*;
 
     #[test]
@@ -254,24 +280,38 @@ mod tests {
 
         let pattern = "convim";
 
-        let score_a = determine_best_streak(pattern, a).total();
-        let score_b = determine_best_streak(pattern, b).total();
+        let score_a = calculate_score(pattern, a);
+        let score_b = calculate_score(pattern, b);
 
         assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
     }
 
-    //#[test]
-    //fn test_if_children_correctly_added() {
-    //let a = "Projects/config/nvim";
-    //let b = "Projects/neovim";
+    #[test]
+    fn test_upper_bad() {
+        let a = "Projects/config/nvim";
 
-    //let pattern = "nvim";
+        let pattern = "PRnvim";
 
-    //let score_a = determine_best_streak(pattern, a).total();
-    //let score_b = determine_best_streak(pattern, b).total();
+        let text_matches = create_matches(pattern, a);
 
-    //assert!(score_a < score_b);
-    //}
+        assert!(!is_valid_match(&text_matches));
+    }
+
+    #[test]
+    fn test_search() {
+        let a = "Projects/nvim-traveller-rs";
+        let b = "/home/norlock/bin/google-cloud-sdk/lib/third_party/setuptools/_vendor/importlib_resources-5.10.2.dist-info";
+        let pattern = "nvim-t-";
+
+        println!("A: {a}");
+        println!("b: {b}");
+        println!("Pattern: {pattern}");
+
+        let score_a = calculate_score(pattern, a);
+        let score_b = calculate_score(pattern, b);
+
+        assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
+    }
 
     #[test]
     fn test_complex_pattern() {
@@ -279,12 +319,26 @@ mod tests {
         let b = "Projects/neovim";
 
         let pattern = "prnvi";
-        println!("{pattern}");
+        println!("A: {a}");
+        println!("b: {b}");
+        println!("Pattern: {pattern}");
 
-        let score_a = determine_best_streak(pattern, a).total();
-        let score_b = determine_best_streak(pattern, b).total();
+        let score_a = calculate_score(pattern, a);
+        let score_b = calculate_score(pattern, b);
 
         assert!(score_a < score_b, "Wrong order: {}, {}", score_a, score_b);
+    }
+
+    #[test]
+    fn test_recurring_char() {
+        let a = "Proasdlmasd/o";
+
+        let pattern = "olmo";
+        println!("{pattern}");
+
+        let text_matches = create_matches(pattern, a);
+
+        assert!(is_valid_match(&text_matches));
     }
 
     #[test]
@@ -294,16 +348,33 @@ mod tests {
 
         let pattern = "de";
 
-        let score_a = determine_best_streak(pattern, a);
-        println!("A: {:?}", score_a);
-        let score_b = determine_best_streak(pattern, b);
-        println!("B: {:?}", score_b);
+        let score_a = calculate_score(pattern, a);
+        let score_b = calculate_score(pattern, b);
 
         assert!(
-            score_b.total() < score_a.total(),
+            score_b < score_a,
             "Wrong order: {:?}, {:?}",
             score_b,
             score_a
+        );
+    }
+
+    #[test]
+    fn test_database() {
+        let a = "Projects/neo-api-rs/database.rs";
+        let b = "Android/Sdk/platform-tools/fastboot";
+
+        let pattern = "datab";
+
+        let score_a = calculate_score(pattern, a);
+        let score_b = calculate_score(pattern, b);
+
+        //assert!(false);
+        assert!(
+            score_a < score_b,
+            "Wrong order: {:?}, {:?}",
+            score_a,
+            score_b
         );
     }
 
@@ -315,15 +386,15 @@ mod tests {
 
         let pattern = "neo";
 
-        let score_a = determine_best_streak(pattern, a);
+        let score_a = calculate_score(pattern, a);
         println!("A: {:?}", score_a);
-        let score_b = determine_best_streak(pattern, b);
+        let score_b = calculate_score(pattern, b);
         println!("B: {:?}", score_b);
-        let score_c = determine_best_streak(pattern, c);
+        let score_c = calculate_score(pattern, c);
         println!("C: {:?}", score_c);
 
         assert!(
-            score_a.total() < score_b.total() && score_b.total() < score_c.total(),
+            score_a < score_b && score_b < score_c,
             "Wrong order: {:?}, {:?}, {:?}",
             score_a,
             score_b,
