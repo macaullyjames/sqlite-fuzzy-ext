@@ -96,15 +96,13 @@ fn highest_score(text_matches: Vec<Option<CharMatch>>, text: &str) -> i64 {
 }
 
 fn streak_score(idx: usize, streak_len: usize, text_len: usize, direct_bonus: bool) -> i64 {
-    //let direct_bonus = if self.direct_bonus { 200 } else { 0 };
-    // TODO direct bonus
     let len_bonus = streak_len as f32 / text_len as f32 * 200.;
-    //println!("lenb: {len_bonus}");
     let last_idx = idx + streak_len;
     let end_bonus = last_idx as f32 / text_len as f32 * 100.;
-    //println!("endb: {end_bonus}");
-
     let direct_bonus = if direct_bonus { 100. } else { 0. };
+
+    //println!("lenb: {len_bonus}");
+    //println!("endb: {end_bonus}");
     //println!("dir: {direct_bonus}");
 
     (streak_len as f32 * 50. + len_bonus + end_bonus + direct_bonus) as i64
@@ -139,8 +137,6 @@ fn create_matches(pattern: &str, text: &str) -> Vec<Option<CharMatch>> {
             text_matches.push(None);
         }
     }
-
-    //println!("{all_matches:?}");
 
     // Remove illegal pattern indices before
     let mut start_from = 0;
@@ -228,11 +224,17 @@ impl CharMatch {
         let mut ordering = Ordering::Greater;
 
         for pattern_idx in self.iter() {
-            if *pattern_idx == idx {
-                return Ordering::Equal;
-            } else if *pattern_idx < idx {
-                ordering = Ordering::Less;
+            match pattern_idx.cmp(&idx) {
+                Ordering::Less => ordering = Ordering::Less,
+                Ordering::Equal => return Ordering::Equal,
+                Ordering::Greater => {},
             }
+
+            //if *pattern_idx == idx {
+                //return Ordering::Equal;
+            //} else if *pattern_idx < idx {
+                //ordering = Ordering::Less;
+            //}
         }
 
         ordering
@@ -240,11 +242,17 @@ impl CharMatch {
 
     fn valid_after(&self, idx: usize) -> Ordering {
         for pattern_idx in self.iter() {
-            if *pattern_idx == idx {
-                return Ordering::Equal;
-            } else if idx < *pattern_idx {
-                return Ordering::Greater;
+            match pattern_idx.cmp(&idx) {
+                Ordering::Less => {}
+                Ordering::Equal => return Ordering::Equal,
+                Ordering::Greater => return Ordering::Greater,
             }
+
+            //if *pattern_idx == idx {
+                //return Ordering::Equal;
+            //} else if idx < *pattern_idx {
+                //return Ordering::Greater;
+            //}
         }
 
         Ordering::Less
@@ -260,7 +268,7 @@ impl CharMatch {
         for p_idx in self.iter() {
             if last + 1 == *p_idx {
                 streak.push(*p_idx);
-                *max_len = max_len.clone().max(streak.len());
+                *max_len = (*max_len).max(streak.len());
                 return true;
             }
         }
