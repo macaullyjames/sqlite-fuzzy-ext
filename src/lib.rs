@@ -229,12 +229,6 @@ impl CharMatch {
                 Ordering::Equal => return Ordering::Equal,
                 Ordering::Greater => {}
             }
-
-            //if *pattern_idx == idx {
-            //return Ordering::Equal;
-            //} else if *pattern_idx < idx {
-            //ordering = Ordering::Less;
-            //}
         }
 
         ordering
@@ -247,12 +241,6 @@ impl CharMatch {
                 Ordering::Equal => return Ordering::Equal,
                 Ordering::Greater => return Ordering::Greater,
             }
-
-            //if *pattern_idx == idx {
-            //return Ordering::Equal;
-            //} else if idx < *pattern_idx {
-            //return Ordering::Greater;
-            //}
         }
 
         Ordering::Less
